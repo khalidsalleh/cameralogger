@@ -5,13 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Logbook Scanner</title>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <link rel="manifest" href="manifest.json">
     <style>
         body { font-family: sans-serif; padding: 20px; max-width: 400px; margin: auto; }
-        button, input, textarea { width: 100%; margin-bottom: 15px; padding: 10px; box-sizing: border-box; }
-        textarea { height: 150px; }
-        #status { color: gray; font-style: italic; }
+        button, input, textarea, progress { width: 100%; margin-bottom: 15px; box-sizing: border-box; }
+        input, button { padding: 10px; }
+        textarea { height: 150px; padding: 10px; }
+        #status { color: gray; font-style: italic; margin-bottom: 5px; }
+        
+        /* Make the progress bar a little thicker */
+        progress { height: 20px; display: none; } 
     </style>
-<link rel="manifest" href="manifest.json">
 </head>
 <body>
 
@@ -21,6 +25,8 @@
     
     <p id="status">Waiting for image...</p>
     
+    <progress id="progressBar" value="0" max="1"></progress>
+    
     <textarea id="extractedText" placeholder="Extracted text will appear here. You can edit it before submitting..."></textarea>
     
     <button onclick="submitToSheet()">Save to Spreadsheet</button>
@@ -29,23 +35,42 @@
         const cameraInput = document.getElementById('cameraInput');
         const statusText = document.getElementById('status');
         const extractedTextArea = document.getElementById('extractedText');
+        const progressBar = document.getElementById('progressBar');
 
-        // Your Google Apps Script URL goes here!
-        const GOOGLE_SCRIPT_URL = 'PASTE_YOUR_WEB_APP_URL_HERE';
+        // IMPORTANT: Paste your Google Apps Script URL here again!
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwClUbIOe4DQUrB6GvJbR860VeuKcWPK7bfOzmiC5AKNTLZXu-jAsOSGtu8z0d39pz-Nw/exec';
 
         cameraInput.addEventListener('change', async (e) => {
             if(e.target.files.length === 0) return;
             
-            statusText.innerText = "Scanning image... Please wait.";
             const imageFile = e.target.files[0];
+            
+            // Reset and show the progress bar
+            statusText.innerText = "Preparing to scan...";
+            progressBar.value = 0;
+            progressBar.style.display = 'block'; 
+            extractedTextArea.value = "";
 
             try {
-                // Run Tesseract OCR on the image
-                const result = await Tesseract.recognize(imageFile, 'eng');
+                // Run Tesseract OCR and track the progress
+                const result = await Tesseract.recognize(imageFile, 'eng', {
+                    logger: m => {
+                        // Tesseract goes through a few phases. We only want to track the actual text recognition.
+                        if (m.status === 'recognizing text') {
+                            statusText.innerText = `Scanning image... ${Math.round(m.progress * 100)}%`;
+                            progressBar.value = m.progress;
+                        }
+                    }
+                });
+                
+                // When finished, update text and hide the progress bar
                 extractedTextArea.value = result.data.text;
                 statusText.innerText = "Scan complete! Edit if needed, then save.";
+                progressBar.style.display = 'none';
+                
             } catch (err) {
                 statusText.innerText = "Error scanning image.";
+                progressBar.style.display = 'none';
                 console.error(err);
             }
         });
@@ -63,7 +88,7 @@
                 });
                 
                 statusText.innerText = "Saved successfully!";
-                extractedTextArea.value = ""; // Clear for the next patient
+                extractedTextArea.value = ""; 
                 cameraInput.value = "";
             } catch (err) {
                 statusText.innerText = "Failed to save.";
