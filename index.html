@@ -4,30 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Logbook Scanner</title>
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <link rel="manifest" href="manifest.json">
     <style>
         body { font-family: sans-serif; padding: 20px; max-width: 400px; margin: auto; }
-        button, input, textarea, progress { width: 100%; margin-bottom: 15px; box-sizing: border-box; }
+        button, input, textarea { width: 100%; margin-bottom: 15px; box-sizing: border-box; }
         input, button { padding: 10px; }
         textarea { height: 150px; padding: 10px; }
-        #status { color: gray; font-style: italic; margin-bottom: 5px; }
-        
-        /* Make the progress bar a little thicker */
-        progress { height: 20px; display: none; } 
+        #status { color: gray; font-style: italic; margin-bottom: 5px; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2>Logbook Scanner</h2>
+    <h2>Logbook Scanner (Gemini Powered)</h2>
     
     <input type="file" accept="image/*" capture="camera" id="cameraInput">
-    
     <p id="status">Waiting for image...</p>
     
-    <progress id="progressBar" value="0" max="1"></progress>
-    
-    <textarea id="extractedText" placeholder="Extracted text will appear here. You can edit it before submitting..."></textarea>
+    <textarea id="extractedText" placeholder="Extracted text will appear here. Edit it before submitting..."></textarea>
     
     <button onclick="submitToSheet()">Save to Spreadsheet</button>
 
@@ -35,44 +28,50 @@
         const cameraInput = document.getElementById('cameraInput');
         const statusText = document.getElementById('status');
         const extractedTextArea = document.getElementById('extractedText');
-        const progressBar = document.getElementById('progressBar');
 
-        // IMPORTANT: Paste your Google Apps Script URL here again!
+        // Paste your Google Apps Script URL here!
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwClUbIOe4DQUrB6GvJbR860VeuKcWPK7bfOzmiC5AKNTLZXu-jAsOSGtu8z0d39pz-Nw/exec';
 
-        cameraInput.addEventListener('change', async (e) => {
+        cameraInput.addEventListener('change', (e) => {
             if(e.target.files.length === 0) return;
             
             const imageFile = e.target.files[0];
-            
-            // Reset and show the progress bar
-            statusText.innerText = "Preparing to scan...";
-            progressBar.value = 0;
-            progressBar.style.display = 'block'; 
+            statusText.innerText = "Sending to Gemini for processing... please wait.";
+            statusText.style.color = "blue";
             extractedTextArea.value = "";
 
-            try {
-                // Run Tesseract OCR and track the progress
-                const result = await Tesseract.recognize(imageFile, 'eng', {
-                    logger: m => {
-                        // Tesseract goes through a few phases. We only want to track the actual text recognition.
-                        if (m.status === 'recognizing text') {
-                            statusText.innerText = `Scanning image... ${Math.round(m.progress * 100)}%`;
-                            progressBar.value = m.progress;
-                        }
+            // Convert image to Base64 to send over the internet safely
+            const reader = new FileReader();
+            reader.readAsDataURL(imageFile);
+            reader.onload = async function () {
+                const base64Image = reader.result;
+
+                try {
+                    const response = await fetch(GOOGLE_SCRIPT_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({ 
+                            action: "ocr", 
+                            image: base64Image 
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if(result.status === "success") {
+                        extractedTextArea.value = result.text;
+                        statusText.innerText = "Scan complete! Edit if needed, then save.";
+                        statusText.style.color = "green";
+                    } else {
+                        statusText.innerText = "Error from Gemini.";
+                        statusText.style.color = "red";
+                        console.error(result.message);
                     }
-                });
-                
-                // When finished, update text and hide the progress bar
-                extractedTextArea.value = result.data.text;
-                statusText.innerText = "Scan complete! Edit if needed, then save.";
-                progressBar.style.display = 'none';
-                
-            } catch (err) {
-                statusText.innerText = "Error scanning image.";
-                progressBar.style.display = 'none';
-                console.error(err);
-            }
+                } catch (err) {
+                    statusText.innerText = "Network error. Could not reach server.";
+                    statusText.style.color = "red";
+                    console.error(err);
+                }
+            };
         });
 
         async function submitToSheet() {
@@ -80,18 +79,24 @@
             if(!textToSave) return alert("Nothing to save!");
 
             statusText.innerText = "Saving to Google Sheets...";
+            statusText.style.color = "blue";
 
             try {
                 const response = await fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
-                    body: JSON.stringify({ extractedText: textToSave })
+                    body: JSON.stringify({ 
+                        action: "save", 
+                        extractedText: textToSave 
+                    })
                 });
                 
                 statusText.innerText = "Saved successfully!";
+                statusText.style.color = "green";
                 extractedTextArea.value = ""; 
                 cameraInput.value = "";
             } catch (err) {
                 statusText.innerText = "Failed to save.";
+                statusText.style.color = "red";
                 console.error(err);
             }
         }
